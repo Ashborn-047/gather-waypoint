@@ -7,23 +7,31 @@ import {
     Share,
     ActivityIndicator,
     Alert,
+    Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getDeviceId } from "../../lib/device";
 import { formatDistance, formatETA } from "../../lib/geo";
+import { useLocation } from "../../hooks/useLocation";
+import SessionMap from "../../components/SessionMap";
+import DestinationPicker from "../../components/DestinationPicker";
 
 /**
  * Session Screen
  * 
  * The main session view showing:
- * - Map with participant locations
+ * - Interactive map with participant locations
  * - Destination marker
  * - ETA panel
  * - Share/Leave controls
+ * - Location tracking
  */
+
+// App deep link scheme (configure in app.json)
+const APP_SCHEME = "gather";
 
 export default function SessionScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,11 +39,27 @@ export default function SessionScreen() {
     const sessionId = id as Id<"sessions">;
 
     const [deviceId, setDeviceId] = useState<string | null>(null);
+    const [showDestinationPicker, setShowDestinationPicker] = useState(false);
 
     // Load device ID
     useEffect(() => {
         getDeviceId().then(setDeviceId);
     }, []);
+
+    // Location tracking hook
+    const {
+        location: userLocation,
+        error: locationError,
+        isTracking,
+        permissionStatus,
+        requestPermission,
+        startTracking,
+    } = useLocation({
+        sessionId,
+        deviceId: deviceId || "",
+        enabled: !!deviceId,
+        interval: 3000,
+    });
 
     // Convex queries (auto-subscribed for real-time updates)
     const session = useQuery(api.sessions.getSession, { sessionId });
@@ -44,9 +68,7 @@ export default function SessionScreen() {
 
     // Convex mutations
     const leaveSession = useMutation(api.sessions.leaveSession);
-    const updateLocation = useMutation(api.presence.updateLocation);
     const reportDelay = useMutation(api.presence.reportDelay);
-    const clearDelay = useMutation(api.presence.clearDelay);
     const setWaypoint = useMutation(api.destination.setWaypoint);
 
     // Handle session not found or ended
@@ -62,13 +84,24 @@ export default function SessionScreen() {
         }
     }, [session, router]);
 
-    // Share session code
+    // Request location permission on mount
+    useEffect(() => {
+        if (permissionStatus === null) {
+            requestPermission();
+        }
+    }, [permissionStatus, requestPermission]);
+
+    // Share session code with deep link
     const handleShare = useCallback(async () => {
         if (!session?.code) return;
 
+        const deepLink = `${APP_SCHEME}://join/${session.code}`;
+        const webFallback = `https://gather.app/join/${session.code}`; // Placeholder for web app
+
         try {
             await Share.share({
-                message: `Join my Gather session!\n\nCode: ${session.code}\n\nDownload Gather to track our journey together.`,
+                message: `Join my Gather session!\n\n🎯 Code: ${session.code}\n\n📱 Open in app: ${deepLink}\n\n🌐 Or visit: ${webFallback}\n\nTrack our journey together in real-time!`,
+                title: "Join my Gather session",
             });
         } catch (error) {
             console.error("Share failed:", error);
@@ -100,7 +133,6 @@ export default function SessionScreen() {
     const handleReportDelay = useCallback(async () => {
         if (!deviceId) return;
 
-        // Simple delay options
         Alert.alert("Report Delay", "How long will you be delayed?", [
             {
                 text: "5 minutes",
@@ -136,6 +168,57 @@ export default function SessionScreen() {
         ]);
     }, [deviceId, sessionId, reportDelay]);
 
+    // Set destination
+    const handleSetDestination = useCallback(
+        async (destination: { latitude: number; longitude: number; name: string }) => {
+            try {
+                await setWaypoint({
+                    sessionId,
+                    latitude: destination.latitude,
+                    longitude: destination.longitude,
+                    name: destination.name,
+                });
+            } catch (error) {
+                console.error("Failed to set destination:", error);
+                Alert.alert("Error", "Failed to set destination. Please try again.");
+            }
+        },
+        [sessionId, setWaypoint]
+    );
+
+    // Handle map tap to set destination
+    const handleMapPress = useCallback(
+        (coordinate: { latitude: number; longitude: number }) => {
+            if (!session?.destination) {
+                // If no destination set, prompt to set one
+                Alert.alert("Set Destination", "Set this location as the meeting point?", [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                        text: "Set",
+                        onPress: () =>
+                            handleSetDestination({
+                                latitude: coordinate.latitude,
+                                longitude: coordinate.longitude,
+                                name: "Meeting Point",
+                            }),
+                    },
+                ]);
+            }
+        },
+        [session?.destination, handleSetDestination]
+    );
+
+    // Transform participants for map
+    const mapParticipants = (participants || []).map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        color: p.color,
+        location: p.location
+            ? { latitude: p.location.latitude, longitude: p.location.longitude }
+            : undefined,
+        delay: p.delay,
+    }));
+
     // Loading state
     if (!session || !participants) {
         return (
@@ -152,9 +235,17 @@ export default function SessionScreen() {
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
                     <Text style={styles.sessionCode}>{session.code}</Text>
-                    <Text style={styles.participantCount}>
-                        {participants.length} participant{participants.length !== 1 ? "s" : ""}
-                    </Text>
+                    <View style={styles.statusRow}>
+                        <Text style={styles.participantCount}>
+                            {participants.length} participant{participants.length !== 1 ? "s" : ""}
+                        </Text>
+                        {isTracking && (
+                            <View style={styles.trackingBadge}>
+                                <Text style={styles.trackingDot}>●</Text>
+                                <Text style={styles.trackingText}>GPS</Text>
+                            </View>
+                        )}
+                    </View>
                 </View>
                 <View style={styles.headerRight}>
                     <TouchableOpacity style={styles.headerButton} onPress={handleShare}>
@@ -169,58 +260,53 @@ export default function SessionScreen() {
                 </View>
             </View>
 
-            {/* Map Placeholder */}
+            {/* Map View */}
             <View style={styles.mapContainer}>
-                <View style={styles.mapPlaceholder}>
-                    <Text style={styles.mapPlaceholderText}>🗺️</Text>
-                    <Text style={styles.mapPlaceholderLabel}>Map View</Text>
-                    <Text style={styles.mapPlaceholderSub}>
-                        {session.destination
-                            ? `Destination: ${session.destination.name || "Set"}`
-                            : "No destination set"}
-                    </Text>
-                </View>
+                <SessionMap
+                    participants={mapParticipants}
+                    destination={session.destination}
+                    userLocation={userLocation}
+                    currentDeviceId={deviceId || undefined}
+                    onMapPress={handleMapPress}
+                />
 
-                {/* Participant Markers (Preview) */}
-                {participants.map((p, index) => (
-                    <View
-                        key={p.id}
-                        style={[
-                            styles.participantMarker,
-                            {
-                                left: 50 + (index * 30) % 200,
-                                top: 100 + (index * 40) % 200,
-                                borderColor: p.color,
-                            },
-                        ]}
+                {/* Set Destination Button */}
+                {!session.destination && (
+                    <TouchableOpacity
+                        style={styles.setDestinationButton}
+                        onPress={() => setShowDestinationPicker(true)}
                     >
-                        <Text style={styles.participantInitials}>
-                            {p.displayName.slice(0, 2).toUpperCase()}
-                        </Text>
-                        {p.delay && (
-                            <View style={styles.delayBadge}>
-                                <Text style={styles.delayBadgeText}>⚠️</Text>
-                            </View>
-                        )}
+                        <Text style={styles.setDestinationText}>📍 Set Meeting Point</Text>
+                    </TouchableOpacity>
+                )}
+
+                {/* Location Error Banner */}
+                {locationError && (
+                    <View style={styles.errorBanner}>
+                        <Text style={styles.errorText}>⚠️ {locationError}</Text>
+                        <TouchableOpacity onPress={startTracking}>
+                            <Text style={styles.retryText}>Retry</Text>
+                        </TouchableOpacity>
                     </View>
-                ))}
+                )}
             </View>
 
             {/* ETA Panel */}
             {etas?.hasDestination && (
                 <View style={styles.etaPanel}>
-                    <Text style={styles.etaPanelTitle}>Estimated Arrivals</Text>
+                    <View style={styles.etaHeader}>
+                        <Text style={styles.etaPanelTitle}>ARRIVALS</Text>
+                        {session.destination?.name && (
+                            <Text style={styles.destinationName}>📍 {session.destination.name}</Text>
+                        )}
+                    </View>
                     {etas.etas.map((eta) => {
-                        const participant = participants.find(
-                            (p) => p.id === eta.participantId
-                        );
+                        const participant = participants.find((p) => p.id === eta.participantId);
                         if (!participant) return null;
                         return (
                             <View key={eta.participantId} style={styles.etaRow}>
                                 <View style={styles.etaParticipant}>
-                                    <View
-                                        style={[styles.etaDot, { backgroundColor: participant.color }]}
-                                    />
+                                    <View style={[styles.etaDot, { backgroundColor: participant.color }]} />
                                     <Text style={styles.etaName}>{participant.displayName}</Text>
                                     {participant.delay && (
                                         <Text style={styles.etaDelayed}>delayed</Text>
@@ -240,13 +326,18 @@ export default function SessionScreen() {
 
             {/* Bottom Controls */}
             <View style={styles.bottomControls}>
-                <TouchableOpacity
-                    style={styles.delayButton}
-                    onPress={handleReportDelay}
-                >
+                <TouchableOpacity style={styles.delayButton} onPress={handleReportDelay}>
                     <Text style={styles.delayButtonText}>🚨 Running Late</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Destination Picker Modal */}
+            <DestinationPicker
+                visible={showDestinationPicker}
+                onClose={() => setShowDestinationPicker(false)}
+                onSelect={handleSetDestination}
+                currentLocation={userLocation}
+            />
         </View>
     );
 }
@@ -273,7 +364,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         paddingHorizontal: 16,
         paddingTop: 60,
-        paddingBottom: 16,
+        paddingBottom: 12,
         backgroundColor: "#111",
         borderBottomWidth: 1,
         borderBottomColor: "#222",
@@ -289,10 +380,33 @@ const styles = StyleSheet.create({
         color: "#fff",
         letterSpacing: 2,
     },
+    statusRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 2,
+    },
     participantCount: {
         fontSize: 12,
         color: "#666",
-        marginTop: 2,
+    },
+    trackingBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "rgba(52, 211, 153, 0.15)",
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 10,
+    },
+    trackingDot: {
+        color: "#34D399",
+        fontSize: 8,
+    },
+    trackingText: {
+        color: "#34D399",
+        fontSize: 10,
+        fontWeight: "600",
     },
     headerButton: {
         paddingHorizontal: 16,
@@ -313,56 +427,48 @@ const styles = StyleSheet.create({
     },
     mapContainer: {
         flex: 1,
-        backgroundColor: "#1a1a1a",
         position: "relative",
     },
-    mapPlaceholder: {
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    mapPlaceholderText: {
-        fontSize: 64,
-        opacity: 0.3,
-    },
-    mapPlaceholderLabel: {
-        fontSize: 18,
-        color: "#444",
-        marginTop: 8,
-    },
-    mapPlaceholderSub: {
-        fontSize: 12,
-        color: "#333",
-        marginTop: 4,
-    },
-    participantMarker: {
+    setDestinationButton: {
         position: "absolute",
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: "#1a1a1a",
-        borderWidth: 2,
-        justifyContent: "center",
-        alignItems: "center",
+        top: 16,
+        alignSelf: "center",
+        backgroundColor: "#34D399",
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 5,
     },
-    participantInitials: {
-        fontSize: 10,
+    setDestinationText: {
+        color: "#000",
+        fontSize: 14,
         fontWeight: "600",
-        color: "#fff",
     },
-    delayBadge: {
+    errorBanner: {
         position: "absolute",
-        top: -4,
-        right: -4,
-        width: 16,
-        height: 16,
-        borderRadius: 8,
-        backgroundColor: "#FCD34D",
-        justifyContent: "center",
+        bottom: 16,
+        left: 16,
+        right: 16,
+        backgroundColor: "rgba(239, 68, 68, 0.9)",
+        borderRadius: 12,
+        padding: 12,
+        flexDirection: "row",
+        justifyContent: "space-between",
         alignItems: "center",
     },
-    delayBadgeText: {
-        fontSize: 8,
+    errorText: {
+        color: "#fff",
+        fontSize: 13,
+    },
+    retryText: {
+        color: "#fff",
+        fontSize: 13,
+        fontWeight: "600",
+        textDecorationLine: "underline",
     },
     etaPanel: {
         backgroundColor: "#111",
@@ -370,12 +476,21 @@ const styles = StyleSheet.create({
         borderTopColor: "#222",
         padding: 16,
     },
+    etaHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 12,
+    },
     etaPanelTitle: {
         fontSize: 10,
         fontWeight: "600",
         color: "#666",
         letterSpacing: 1,
-        marginBottom: 12,
+    },
+    destinationName: {
+        fontSize: 12,
+        color: "#34D399",
     },
     etaRow: {
         flexDirection: "row",
@@ -420,6 +535,7 @@ const styles = StyleSheet.create({
     },
     bottomControls: {
         padding: 16,
+        paddingBottom: 32,
         backgroundColor: "#111",
         borderTopWidth: 1,
         borderTopColor: "#222",

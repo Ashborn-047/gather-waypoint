@@ -22,10 +22,13 @@ Gather solves the "Where are you?" problem for groups meeting up. Unlike traditi
 | Layer | Technology | Role |
 | :--- | :--- | :--- |
 | **Mobile** | React Native (Expo) | Cross-platform high-fidelity UI |
+| **Map Renderer** | MapLibre GL + OSM | In-app map with dark theme tiles |
 | **Backend** | Convex | Real-time state, subscriptions, & persistence |
 | **Routing** | OSRM (Railway) | Open Source Routing Machine for polyline/ETA |
 | **Navigation** | Expo Router | File-based routing for mobile |
 | **Identity** | Anonymous / Device-based | Privacy-first, zero-onboarding friction |
+
+> **Note:** Google Maps SDK is not used — all map interactions stay within Gather.
 
 ---
 

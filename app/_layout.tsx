@@ -1,8 +1,7 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { useMemo } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, Platform } from "react-native";
 
 /**
  * Root Layout
@@ -10,13 +9,22 @@ import { View, StyleSheet } from "react-native";
  * Sets up providers and navigation structure for the Gather app.
  */
 
-// Convex client instance
-// TODO: Replace with actual deployment URL after `npx convex dev`
+// Polyfill for React Native - Convex expects browser globals
+if (Platform.OS !== "web") {
+    // @ts-ignore - Polyfill for Convex client
+    if (typeof window !== "undefined" && !window.addEventListener) {
+        // @ts-ignore
+        window.addEventListener = () => { };
+        // @ts-ignore
+        window.removeEventListener = () => { };
+    }
+}
+
+// Convex client instance - created once outside component
 const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL || "https://placeholder.convex.cloud";
+const convex = new ConvexReactClient(convexUrl);
 
 export default function RootLayout() {
-    // Create Convex client (memoized to prevent recreation)
-    const convex = useMemo(() => new ConvexReactClient(convexUrl), []);
 
     return (
         <ConvexProvider client={convex}>
