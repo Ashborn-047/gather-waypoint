@@ -112,10 +112,20 @@ Create a `.env.local` file in the root:
 EXPO_PUBLIC_CONVEX_URL=https://your-deployment-name.convex.cloud
 ```
 
-### 4. Launch
+### 4. Launch (Web)
 ```bash
-npx expo start
+npx expo start --web
 ```
+The browser preview uses a dedicated `SessionMapWeb` implementation for instant feedback.
+
+### 5. Launch (Native Mobile)
+Since Gather uses native high-performance maps, you must perform a prebuild to generate the native code:
+```bash
+npx expo prebuild
+npx expo run:android  # or run:ios
+```
+> [!IMPORTANT]
+> A physical device or emulator is required for native map rendering.
 
 ---
 
@@ -126,7 +136,12 @@ gather/
 ├── app/                    # Expo Router Screens
 │   ├── _layout.tsx         # Providers & Navigation Stack
 │   ├── index.tsx           # Home (Create/Join)
-│   └── session/[id].tsx    # Active Session (Map/ETA)
+├── components/             # Reusable UI Components
+│   ├── SessionMap/         # Platform-isolated Map
+│   │   ├── index.tsx       # Platform Dispatcher
+│   │   ├── SessionMapNative.tsx
+│   │   └── SessionMapWeb.tsx
+│   └── DestinationPicker.tsx
 ├── convex/                 # Waypoint Backend logic
 │   ├── schema.ts           # Data definitions
 │   ├── sessions.ts         # Lifecycle logic

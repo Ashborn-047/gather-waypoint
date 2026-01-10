@@ -54,13 +54,16 @@ flowchart TB
 
 ## Map Rendering Layer
 
-The map is rendered **entirely in-app** using MapLibre GL with OpenStreetMap tiles.
+The map is rendered **entirely in-app** using **MapLibre GL** with OpenStreetMap tiles. 
+
+> [!IMPORTANT]
+> **MapLibre GL Native** is the mandatory renderer. This requires a development build (`npx expo prebuild`). There is no visual fallback — the app requires full native map capabilities for session coordination.
 
 | What | Technology |
 |------|------------|
 | Tile Renderer | MapLibre GL Native |
 | Tile Source | CartoDB Dark Matter (OSM-based) |
-| Participant Markers | Custom MarkerViews |
+| Participant Markers | MapLibre MarkerViews |
 | Route Polylines | ShapeSource + LineLayer |
 | Gestures | Pan, zoom, rotate (all in-app) |
 
