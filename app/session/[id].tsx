@@ -16,6 +16,7 @@ import { Id } from "../../convex/_generated/dataModel";
 import { getDeviceId } from "../../lib/device";
 import { formatDistance, formatETA } from "../../lib/geo";
 import { useLocation } from "../../hooks/useLocation";
+import { useRouteRecomputation } from "../../hooks/useRouteRecomputation";
 import SessionMap from "../../components/SessionMap";
 import DestinationPicker from "../../components/DestinationPicker";
 
@@ -70,6 +71,23 @@ export default function SessionScreen() {
     const leaveSession = useMutation(api.sessions.leaveSession);
     const reportDelay = useMutation(api.presence.reportDelay);
     const setWaypoint = useMutation(api.destination.setWaypoint);
+
+    // Find current participant ID for route recomputation
+    const currentParticipant = participants?.find(p => p.id === deviceId) || participants?.[0];
+
+    // Route recomputation hook (auto-triggers on destination change, drift, stale)
+    const mapDestination = session?.destination ? {
+        latitude: (session.destination as any).latitude ?? (session.destination as any).lat,
+        longitude: (session.destination as any).longitude ?? (session.destination as any).lng ?? (session.destination as any).lon,
+    } : null;
+
+    useRouteRecomputation({
+        sessionId,
+        participantId: currentParticipant?.participantId as any,
+        userLocation,
+        destination: mapDestination,
+        enabled: !!currentParticipant && !!mapDestination,
+    });
 
     // Handle session not found or ended
     useEffect(() => {
@@ -209,22 +227,37 @@ export default function SessionScreen() {
     );
 
     // Transform participants for map
-    const mapParticipants = (participants || []).map((p) => ({
-        id: p.id,
-        displayName: p.displayName,
-        color: p.color,
-        location: p.location
-            ? { latitude: p.location.latitude, longitude: p.location.longitude }
-            : undefined,
-        delay: p.delay,
-    }));
+    const mapParticipants = (participants || []).map((p) => {
+        // ULTRA-DEFENSIVE: Handle latitude/longitude, lat/lng, and lat/lon
+        const loc = p.location;
+        const latitude = loc?.latitude ?? (loc as any)?.lat ?? 0;
+        const longitude = loc?.longitude ?? (loc as any)?.lng ?? (loc as any)?.lon ?? 0;
 
-    // Loading state
-    if (!session || !participants) {
+        return {
+            id: p.id,
+            displayName: p.displayName,
+            color: p.color,
+            location: loc ? { latitude, longitude } : undefined,
+            delay: p.delay,
+        };
+    });
+
+    // ULTRA-DEFENSIVE: Map destination from any possible naming convention
+    const mapDestination = session?.destination ? {
+        latitude: (session.destination as any).latitude ?? (session.destination as any).lat,
+        longitude: (session.destination as any).longitude ?? (session.destination as any).lng ?? (session.destination as any).lon,
+        name: session.destination.name,
+        updatedAt: (session.destination as any).updatedAt // Required for resetting camera on "search same"
+    } : null;
+
+    // Loading state: Wait for session, participants, and VALID user location
+    const hasValidLocation = userLocation && userLocation.latitude !== 0 && userLocation.longitude !== 0;
+
+    if (!session || !participants || !hasValidLocation) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#34D399" />
-                <Text style={styles.loadingText}>Loading session...</Text>
+                <Text style={styles.loadingText}>🛰️ Searching for GPS signal...</Text>
             </View>
         );
     }
@@ -264,9 +297,10 @@ export default function SessionScreen() {
             <View style={styles.mapContainer}>
                 <SessionMap
                     participants={mapParticipants}
-                    destination={session.destination}
+                    destination={mapDestination}
                     userLocation={userLocation}
                     currentDeviceId={deviceId || undefined}
+                    routes={etas?.etas}
                     onMapPress={handleMapPress}
                 />
 

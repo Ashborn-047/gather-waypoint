@@ -109,8 +109,8 @@ export function useLocation({
                 await updateLocation({
                     sessionId,
                     deviceId,
-                    lat: initialState.latitude,
-                    lng: initialState.longitude,
+                    latitude: initialState.latitude,
+                    longitude: initialState.longitude,
                     accuracy: initialState.accuracy ?? undefined,
                     heading: initialState.heading ?? undefined,
                     speed: initialState.speed ?? undefined,
@@ -142,8 +142,8 @@ export function useLocation({
                     updateLocation({
                         sessionId,
                         deviceId,
-                        lat: newState.latitude,
-                        lng: newState.longitude,
+                        latitude: newState.latitude,
+                        longitude: newState.longitude,
                         accuracy: newState.accuracy ?? undefined,
                         heading: newState.heading ?? undefined,
                         speed: newState.speed ?? undefined,

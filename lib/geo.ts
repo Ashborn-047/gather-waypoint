@@ -64,13 +64,13 @@ export function lerp(a: number, b: number, t: number): number {
  * Interpolate between two geographic points
  */
 export function lerpCoords(
-    from: { lat: number; lng: number },
-    to: { lat: number; lng: number },
+    from: { latitude: number; longitude: number },
+    to: { latitude: number; longitude: number },
     t: number
-): { lat: number; lng: number } {
+): { latitude: number; longitude: number } {
     return {
-        lat: lerp(from.lat, to.lat, t),
-        lng: lerp(from.lng, to.lng, t),
+        latitude: lerp(from.latitude, to.latitude, t),
+        longitude: lerp(from.longitude, to.longitude, t),
     };
 }
 

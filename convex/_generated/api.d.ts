@@ -11,6 +11,7 @@
 import type * as crons from "../crons.js";
 import type * as destination from "../destination.js";
 import type * as eta from "../eta.js";
+import type * as geocoding from "../geocoding.js";
 import type * as presence from "../presence.js";
 import type * as sessionCleanup from "../sessionCleanup.js";
 import type * as sessions from "../sessions.js";
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   destination: typeof destination;
   eta: typeof eta;
+  geocoding: typeof geocoding;
   presence: typeof presence;
   sessionCleanup: typeof sessionCleanup;
   sessions: typeof sessions;

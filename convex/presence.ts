@@ -49,14 +49,14 @@ export const updateLocation = mutation({
     args: {
         sessionId: v.id("sessions"),
         deviceId: v.string(),
-        lat: v.number(),
-        lng: v.number(),
+        latitude: v.number(),
+        longitude: v.number(),
         heading: v.optional(v.number()),
         speed: v.optional(v.number()),
         accuracy: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const { sessionId, deviceId, lat, lng, heading, speed, accuracy } = args;
+        const { sessionId, deviceId, latitude, longitude, heading, speed, accuracy } = args;
 
         // Validate session exists and is active
         const session = await ctx.db.get(sessionId);
@@ -92,12 +92,12 @@ export const updateLocation = mutation({
         if (existingPresence) {
             // Sanity check: reject impossible speed (teleporting)
             const timeDelta = (now - existingPresence.updatedAt) / 1000; // seconds
-            if (timeDelta > 0 && existingPresence.lat !== 0) {
+            if (timeDelta > 0 && existingPresence.latitude !== 0) {
                 const distance = haversineDistance(
-                    existingPresence.lat,
-                    existingPresence.lng,
-                    lat,
-                    lng
+                    existingPresence.latitude,
+                    existingPresence.longitude,
+                    latitude,
+                    longitude
                 );
                 const calculatedSpeed = distance / timeDelta;
                 if (calculatedSpeed > MAX_SPEED_MPS) {
@@ -107,8 +107,8 @@ export const updateLocation = mutation({
 
             // PATCH existing presence (maintain snapshot invariant)
             await ctx.db.patch(existingPresence._id, {
-                lat,
-                lng,
+                latitude,
+                longitude,
                 heading,
                 speed,
                 accuracy,
@@ -121,8 +121,8 @@ export const updateLocation = mutation({
             await ctx.db.insert("presence", {
                 participantId: participant._id,
                 sessionId,
-                lat,
-                lng,
+                latitude,
+                longitude,
                 heading,
                 speed,
                 accuracy,
@@ -290,8 +290,8 @@ export const getLiveParticipants = query({
                     isActive,
                     location: presence
                         ? {
-                            lat: presence.lat,
-                            lng: presence.lng,
+                            latitude: presence.latitude,
+                            longitude: presence.longitude,
                             heading: presence.heading,
                             speed: presence.speed,
                             updatedAt: presence.updatedAt,

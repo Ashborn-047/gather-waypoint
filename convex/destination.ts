@@ -18,11 +18,11 @@ import { v } from "convex/values";
 export const setWaypoint = mutation({
     args: {
         sessionId: v.id("sessions"),
-        lat: v.number(),
-        lng: v.number(),
+        latitude: v.number(),
+        longitude: v.number(),
         name: v.optional(v.string()),
     },
-    handler: async (ctx, { sessionId, lat, lng, name }) => {
+    handler: async (ctx, { sessionId, latitude, longitude, name }) => {
         const session = await ctx.db.get(sessionId);
         if (!session) {
             throw new Error("Session not found");
@@ -34,7 +34,12 @@ export const setWaypoint = mutation({
 
         // Update destination
         await ctx.db.patch(sessionId, {
-            destination: { lat, lng, name },
+            destination: {
+                latitude,
+                longitude,
+                name,
+                updatedAt: Date.now()
+            },
         });
 
         // Invalidate all cached routes for this session

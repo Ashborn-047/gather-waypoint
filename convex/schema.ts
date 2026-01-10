@@ -14,9 +14,10 @@ export default defineSchema({
     sessions: defineTable({
         code: v.string(),                    // 6-char invite code (e.g., "A3K9M2")
         destination: v.optional(v.object({   // Shared waypoint
-            lat: v.number(),
-            lng: v.number(),
+            latitude: v.number(),
+            longitude: v.number(),
             name: v.optional(v.string()),
+            updatedAt: v.optional(v.number()), // For triggering re-centering
         })),
         status: v.union(
             v.literal("active"),
@@ -50,14 +51,16 @@ export default defineSchema({
     presence: defineTable({
         participantId: v.id("participants"),
         sessionId: v.id("sessions"),         // Denormalized for query efficiency
-        lat: v.number(),
-        lng: v.number(),
+        // NOTE: latitude/longitude are preferred, but lat/lng are kept for backward compat
+        latitude: v.optional(v.number()),    // Preferred
+        longitude: v.optional(v.number()),   // Preferred
+        lat: v.optional(v.number()),         // Legacy (backward compat)
+        lng: v.optional(v.number()),         // Legacy (backward compat)
         heading: v.optional(v.number()),     // Direction of travel (degrees)
         speed: v.optional(v.number()),       // Meters per second
         accuracy: v.optional(v.number()),    // GPS accuracy in meters
         updatedAt: v.number(),
         // USER-DECLARED DELAY SIGNAL (ephemeral, auto-expires after 15 min)
-        // This is a COORDINATION signal, NOT traffic prediction
         delayStatus: v.optional(v.object({
             type: v.union(
                 v.literal("traffic"),
@@ -81,8 +84,8 @@ export default defineSchema({
         polyline: v.string(),                // Encoded polyline from OSRM
         distanceMeters: v.number(),
         etaSeconds: v.number(),
-        originLat: v.number(),               // Route origin for staleness check
-        originLng: v.number(),
+        originLatitude: v.number(),               // Route origin for staleness check
+        originLongitude: v.number(),
         computedAt: v.number(),
     })
         .index("by_session", ["sessionId"])

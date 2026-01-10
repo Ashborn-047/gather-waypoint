@@ -85,8 +85,8 @@ export const createSession = mutation({
         await ctx.db.insert("presence", {
             participantId,
             sessionId,
-            lat: 0,
-            lng: 0,
+            latitude: 0,
+            longitude: 0,
             updatedAt: now,
         });
 
@@ -166,8 +166,8 @@ export const joinSession = mutation({
         await ctx.db.insert("presence", {
             participantId,
             sessionId: session._id,
-            lat: 0,
-            lng: 0,
+            latitude: 0,
+            longitude: 0,
             updatedAt: now,
         });
 

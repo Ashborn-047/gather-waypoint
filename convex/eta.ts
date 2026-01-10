@@ -10,31 +10,59 @@ import { internal } from "./_generated/api";
  * - Destination changes
  * - Participant moves >500m from route origin
  * - Route is older than 5 minutes
+ * 
+ * PRODUCTION: RAILWAY_ROUTING_URL is REQUIRED
+ * DEVELOPMENT: Falls back to public OSRM (not for production)
  */
 
 const ROUTE_STALE_MS = 5 * 60 * 1000;      // 5 minutes
 const ROUTE_ORIGIN_DRIFT_M = 500;          // Meters before recompute
 
-// OSRM public demo server (for development only)
-// TODO: Replace with Railway-hosted instance for production
-const OSRM_URL = "https://router.project-osrm.org";
+// Railway OSRM routing service URL
+const RAILWAY_ROUTING_URL = process.env.RAILWAY_ROUTING_URL;
+
+// Development fallback (MUST be removed in production)
+const DEV_FALLBACK_URL = "https://router.project-osrm.org";
+
+// Determine if we're in production
+const IS_PRODUCTION = process.env.NODE_ENV === "production" ||
+    process.env.CONVEX_CLOUD_URL?.includes("convex.cloud");
+
+function getRoutingUrl(): string {
+    if (RAILWAY_ROUTING_URL) {
+        return RAILWAY_ROUTING_URL;
+    }
+
+    if (IS_PRODUCTION) {
+        throw new Error(
+            "RAILWAY_ROUTING_URL is required in production. " +
+            "Set this environment variable in the Convex dashboard."
+        );
+    }
+
+    console.warn(
+        "⚠️ DEVELOPMENT MODE: Using public OSRM fallback. " +
+        "Set RAILWAY_ROUTING_URL for production."
+    );
+    return DEV_FALLBACK_URL;
+}
 
 /**
  * Calculate distance between two points (Haversine)
  */
 function haversineDistance(
-    lat1: number,
-    lng1: number,
-    lat2: number,
-    lng2: number
+    latitude1: number,
+    longitude1: number,
+    latitude2: number,
+    longitude2: number
 ): number {
     const R = 6371000;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLng = ((lng2 - lng1) * Math.PI) / 180;
+    const dLat = ((latitude2 - latitude1) * Math.PI) / 180;
+    const dLng = ((longitude2 - longitude1) * Math.PI) / 180;
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
+        Math.cos((latitude1 * Math.PI) / 180) *
+        Math.cos((latitude2 * Math.PI) / 180) *
         Math.sin(dLng / 2) *
         Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
@@ -50,17 +78,18 @@ export const computeRoute = action({
     args: {
         sessionId: v.id("sessions"),
         participantId: v.id("participants"),
-        originLat: v.number(),
-        originLng: v.number(),
-        destLat: v.number(),
-        destLng: v.number(),
+        originLatitude: v.number(),
+        originLongitude: v.number(),
+        destLatitude: v.number(),
+        destLongitude: v.number(),
     },
     handler: async (ctx, args) => {
-        const { sessionId, participantId, originLat, originLng, destLat, destLng } = args;
+        const { sessionId, participantId, originLatitude, originLongitude, destLatitude, destLongitude } = args;
 
         try {
-            // Call OSRM routing API
-            const url = `${OSRM_URL}/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=polyline`;
+            // Call OSRM routing API - Use GeoJSON for easier map rendering
+            const osrmUrl = getRoutingUrl();
+            const url = `${osrmUrl}/route/v1/driving/${originLongitude},${originLatitude};${destLongitude},${destLatitude}?overview=full&geometries=geojson`;
 
             const response = await fetch(url);
             if (!response.ok) {
@@ -74,7 +103,7 @@ export const computeRoute = action({
             }
 
             const route = data.routes[0];
-            const polyline = route.geometry;
+            const polyline = JSON.stringify(route.geometry); // Store GeoJSON as string
             const distanceMeters = route.distance;
             const etaSeconds = route.duration;
 
@@ -85,8 +114,8 @@ export const computeRoute = action({
                 polyline,
                 distanceMeters,
                 etaSeconds,
-                originLat,
-                originLng,
+                originLatitude,
+                originLongitude,
             });
 
             return {
@@ -115,11 +144,11 @@ export const cacheRoute = internalMutation({
         polyline: v.string(),
         distanceMeters: v.number(),
         etaSeconds: v.number(),
-        originLat: v.number(),
-        originLng: v.number(),
+        originLatitude: v.number(),
+        originLongitude: v.number(),
     },
     handler: async (ctx, args) => {
-        const { sessionId, participantId, polyline, distanceMeters, etaSeconds, originLat, originLng } = args;
+        const { sessionId, participantId, polyline, distanceMeters, etaSeconds, originLatitude, originLongitude } = args;
 
         // Check for existing route
         const existing = await ctx.db
@@ -134,8 +163,8 @@ export const cacheRoute = internalMutation({
                 polyline,
                 distanceMeters,
                 etaSeconds,
-                originLat,
-                originLng,
+                originLatitude,
+                originLongitude,
                 computedAt: now,
             });
         } else {
@@ -145,8 +174,8 @@ export const cacheRoute = internalMutation({
                 polyline,
                 distanceMeters,
                 etaSeconds,
-                originLat,
-                originLng,
+                originLatitude,
+                originLongitude,
                 computedAt: now,
             });
         }
@@ -196,10 +225,10 @@ export const getETAs = query({
             const isTimeStale = now - route.computedAt > ROUTE_STALE_MS;
             const isDriftStale = presence
                 ? haversineDistance(
-                    route.originLat,
-                    route.originLng,
-                    presence.lat,
-                    presence.lng
+                    route.originLatitude,
+                    route.originLongitude,
+                    presence.latitude,
+                    presence.longitude
                 ) > ROUTE_ORIGIN_DRIFT_M
                 : false;
 
@@ -253,10 +282,10 @@ export const checkRouteStale = query({
 
         if (presence) {
             const drift = haversineDistance(
-                route.originLat,
-                route.originLng,
-                presence.lat,
-                presence.lng
+                route.originLatitude,
+                route.originLongitude,
+                presence.latitude,
+                presence.longitude
             );
             if (drift > ROUTE_ORIGIN_DRIFT_M) {
                 return { needsCompute: true, reason: "drift" };
