@@ -44,32 +44,50 @@ Every action happens within a volatile `Session`. Each session has a 4-hour TTL 
 Unlike traditional location apps that store heavy history breadcrumbs, Waypoint uses a **Snapshot Model**. The `presence` table contains exactly one row per active participant, updated via high-frequency `patch` mutations. This keeps the database lean and subscriptions ultra-fast.
 
 #### 3. Real-Time Data Flow
-```mermaid
-flowchart TB
-    subgraph Mobile["📱 Mobile Clients"]
-        UI[Glanceable UI]
-        MapView[Map Renderer]
-        GPS[Location Service]
-        Interp[Interpolation Engine]
-    end
-    
-    subgraph Waypoint["⚡ Waypoint Engine (Convex)"]
-        Sessions[sessions.ts]
-        Presence[presence.ts]
-        ETA[eta.ts]
-    end
-    
-    subgraph Routing["🚂 Routing Layer"]
-        OSRM[OSRM API]
-    end
-    
-    GPS -->|1-3s updateLocation| Presence
-    Presence -->|Real-time Snapshot| MapView
-    MapView --> Interp
-    Interp -->|60fps Movement| UI
-    
-    ETA -->|async action| OSRM
-    OSRM -->|Polyline + ETA| ETA
+
+```
+                    ┌─────────────────────────────────────────────┐
+                    │            📱 MOBILE CLIENTS                │
+                    │                                             │
+                    │   ┌─────────────┐      ┌─────────────────┐  │
+                    │   │  Location   │      │  Map Renderer   │  │
+                    │   │  Service    │      │                 │  │
+                    │   └──────┬──────┘      └────────▲────────┘  │
+                    │          │                      │           │
+                    │          │ 1-3s updateLocation  │ Real-time │
+                    │          │                      │ Snapshot  │
+                    │          ▼                      │           │
+                    │   ┌─────────────────────────────┴───────┐   │
+                    │   │         Interpolation Engine        │   │
+                    │   │            (60fps smooth)           │   │
+                    │   └─────────────────┬───────────────────┘   │
+                    │                     │                       │
+                    │                     ▼                       │
+                    │            ┌─────────────────┐              │
+                    │            │  Glanceable UI  │              │
+                    │            └─────────────────┘              │
+                    └─────────────────────┬───────────────────────┘
+                                          │
+                                          ▼
+                    ┌─────────────────────────────────────────────┐
+                    │          ⚡ WAYPOINT ENGINE (Convex)        │
+                    │                                             │
+                    │   ┌────────────┐ ┌────────────┐ ┌────────┐  │
+                    │   │sessions.ts │ │presence.ts │ │ eta.ts │  │
+                    │   └────────────┘ └────────────┘ └───┬────┘  │
+                    │                                     │       │
+                    └─────────────────────────────────────┼───────┘
+                                                          │
+                                          async action    │
+                                          Polyline + ETA  │
+                                                          ▼
+                    ┌─────────────────────────────────────────────┐
+                    │           🚂 ROUTING LAYER (Railway)        │
+                    │                                             │
+                    │                 ┌──────────┐                │
+                    │                 │ OSRM API │                │
+                    │                 └──────────┘                │
+                    └─────────────────────────────────────────────┘
 ```
 
 ### Key Invariants
